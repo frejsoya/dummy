@@ -38,6 +38,7 @@ type event_log = {
   param : event_param;
   value : string option;
   session_id : string option;
+  new_event : bool;
 }
 [@@deriving show]
 
@@ -63,20 +64,13 @@ let make_new_complete last_event =
       session_id = None;
       user_id;
       timestamp;
+      new_event = true;
     }
   in
   Format.eprintf "Creating new event:\n%a\n" pp_event_log new_event;
   new_event
 
-(* event.param ->
-   Some param
-   None ->
-*)
-let f s = failwith s
-
 module FSM = struct
-  let next_param = function [] -> None | e :: rest -> Some (e.param, e, rest)
-
   let rec state_init state events =
     match events with
     | [] -> state
@@ -109,13 +103,10 @@ module FSM = struct
 
   and state_phrase_progression state events =
     match events with
-    | [] -> (
-        try
-          let previous_event = List.hd state in
-          let new_complete = make_new_complete previous_event in
-          new_complete :: state
-        with Failure _msg ->
-          failwith "state phrase progression failed with empty state")
+    | [] ->
+        let previous_event = List.hd state in
+        let new_complete = make_new_complete previous_event in
+        new_complete :: state
     | event :: remaining -> (
         match event.param with
         | Start_workout ->
@@ -167,7 +158,8 @@ let () =
               let value = clean_opt value in
               let session_id = clean_opt session_id in
               let timestamp, _opt, _opt2 = clean_ts timestamp in
-              { id; user_id; timestamp; param; value; session_id })
+              let new_event = false in
+              { id; user_id; timestamp; param; value; session_id; new_event })
         in
         elem)
   in
@@ -207,41 +199,10 @@ let () =
         Format.printf "\nGROUP_user %d\n " user_id;
         let pp = Ptime.pp_human ~frac_s:6 () in
         List.iter fixed_group ~f:(fun e ->
+            if e.new_event then Format.printf "NEW" else ();
+
             Format.printf "\t%a, %s,\n" pp e.timestamp
               (event_param_to_string e.param)))
       group_by_user
   in
   ()
-
-(* Valid sequences
-   state machine
-   |
-    - No_events
-
-   current_workout = start_event, phase_progressions,others,complete_event
-
-
-   if start_event:
-     examine previous state for completion.
-*)
-let log_error event =
-  Format.eprintf "Skippping spurious phase event %a\n" pp_event_log event
-
-(* let start_workout_transition event state = match event.param with
-   | Start_workout -> start_workout_transition
-   | Complete_workout -> (* has *)
-   | Phase_progression _ ->
-   | Other s -> failwith "Unknown event: " ^ s
-   in *)
-
-(* initial: No_Events
- * initial---start :: xs--->Start ts
-   initial---workout :: xs --->Start ts
-   initial---phase completion :: xs --> skip;initial
-   initial---
- *)
-
-(* type fsm = `Initial | `Start of event_log | `Phases of event_log list *)
-
-(* let pp_list = Format.pp_print_list pp_event_log in *)
-(* Format.printf "%a" pp_list data *)
