@@ -1,5 +1,6 @@
 open StdLabels
 open MoreLabels
+module IntSet = Set.Make(Int)
 
 type event_param =
   | Start_workout
@@ -182,49 +183,88 @@ let read_event_sql_dump file =
     Format.eprintf "Reading event data \n";
     (* lazy sequence materalized as an array*)
     event_log_data |> Array.of_seq
-
   in
 
-   In_channel.with_open_text file read_data
-
+  In_channel.with_open_text file read_data
 
 (* Main function *)
 
 let () =
   Printexc.record_backtrace true;
-
-  print_endline "Hello, World!\n";
   let file = "../event-logs" in
   let event_log_data = read_event_sql_dump file in
 
   Format.eprintf "Sorting event log by user id\n";
   Array.sort ~cmp:(fun a b -> a.user_id - b.user_id) event_log_data;
 
-  let group_by_user =
+  let event_log_grouped_by_user =
     Array.to_seq event_log_data |> Seq.group (fun a b -> a.user_id == b.user_id)
   in
   Format.eprintf "Verifying and adding missing events\n";
 
-  (* Validate and transform by users group *)
-  let () =
-    Seq.iter
-      (fun user_group ->
-        let group = List.of_seq user_group in
-        let user_id = (List.hd group).user_id in
-
-        let group =
-          List.sort
-            ~cmp:(fun a b -> Ptime.compare a.timestamp b.timestamp)
-            group
-        in
-        let group = EventValidate.start group |> List.rev in
-        Format.printf "\nGROUP_user %d\n " user_id;
-        let pp = Ptime.pp_human ~frac_s:6 () in
-        List.iter group ~f:(fun e ->
-            if e.new_event then Format.printf "NEW" else ();
-
-            Format.printf "\t%a, %s,\n" pp e.timestamp
-              (event_param_to_string e.param)))
-      group_by_user
+  let print_data group =
+    let user_id = (List.hd group).user_id in
+    let f e =
+      let pp = Ptime.pp_human ~frac_s:6 () in
+      if e.new_event then Format.printf "NEW" else ();
+      let value = Option.value e.value ~default:"NULL" in
+      let session_id = Option.value e.session_id ~default:"NULL" in
+      Format.printf "\t%a, %s, %s, %s\n" pp e.timestamp
+        (event_param_to_string e.param)
+        value session_id
+    in
+    Format.printf "\nGROUP_user %d\n " user_id;
+    List.iter group ~f
   in
-  ()
+
+  let print_sql groups =
+    let user_ids = IntSet.empty  in
+    let event_logs = List.concat groups in
+
+    (* let _res =  List.fold_left ~init fixed_groups ~f:print_sql in *)
+    Format.printf
+      {|INSERT INTO "public"."event_logs" ("user_id", "timestamp", "param", "value") VALUES@.|};
+    let new_events = List.filter ~f:(fun e -> e.new_event == true) event_logs in
+    let last_idx = List.length new_events - 1 in
+    (* let init = (user_ids, 0) in *)
+    (* let user_ids = List.fold_left ~init:IntSet.empty ~f:(fun ids e -> IntSet.add e.user_id ids )  new_events in *)
+
+    List.iteri new_events ~f:(fun idx e ->
+        (* TODO gather user_id to keep sql *)
+        (* row_id => database should generate
+           user_id
+        *)
+        (* 139559, '2023-09-28 23:31:41.235368', 'updateFCMtoken', '{}', NULL), *)
+        (* let value *)
+        let user_id = e.user_id in
+        let pp_timestamp = Ptime.pp_rfc3339 ~frac_s:6 () in
+        let param = event_param_to_string e.param in
+        Format.printf "(%d,'%a','%s', NULL)" user_id pp_timestamp e.timestamp
+          param;
+
+        if last_idx == idx then Format.printf ";@." else Format.printf ",@."
+    )
+  in
+
+  let process_data () =
+    let process_group user_group =
+      let group = List.of_seq user_group in
+      let group =
+        List.sort ~cmp:(fun a b -> Ptime.compare a.timestamp b.timestamp) group
+      in
+      let group = EventValidate.start group |> List.rev in
+      group
+      (* dump_data group *)
+    in
+    let fixed_groups =
+      Seq.map process_group event_log_grouped_by_user |> List.of_seq
+    in
+
+    (* Dump data for debug *)
+    (* let () = List.iter ~f:print_data fixed_groups in *)
+    print_sql fixed_groups;
+
+    ()
+  in
+
+  process_data ()
