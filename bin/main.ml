@@ -43,9 +43,6 @@ type event_log = {
 }
 [@@deriving show]
 
-(* FIXME: Could rely on postgresql timer
-
-*)
 let counter = ref 2_000_000_000
 
 let next_id () =
@@ -68,12 +65,15 @@ let make_new_complete last_event =
       new_event = true;
     }
   in
-  (* Format.eprintf "Creating new event:\n%a\n" pp_event_log new_event; *)
   new_event
 
-(*
-
-  Small state machine with each event_log being transitions between states
+(**
+Small state machine with each event_log being transitions between states,
+to capture necesaary context for current event.
+States are:
+  - state_init
+  - state_start_workout
+  - state_phase_progression
 
   *)
 module EventValidate = struct
