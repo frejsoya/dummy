@@ -1,0 +1,21 @@
+@startuml
+
+
+state init
+state start
+state phases
+
+
+
+[*] --> init : Start
+
+init --> start : Event:Start_workout
+init --> [*]  : Event=End
+start --> phases : Event:Phase_progression
+phases --> init  : Event:complete_workout
+phases --> start : Event:start_workout\nAction: Add new complete_workout
+phases --> [*]  : Event=End\nAction: Add new complete_workout
+start --> [*]  : Event=End
+
+
+@enduml
