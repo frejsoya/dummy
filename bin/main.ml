@@ -33,7 +33,7 @@ let event_param_to_string event_param =
   | Other str -> str
 
 type event_log = {
-  id : int;
+  id :  int option;
   user_id : int;
   timestamp : Ptime.t;
   param : event_param;
@@ -43,12 +43,7 @@ type event_log = {
 }
 [@@deriving show]
 
-let counter = ref 2_000_000_000
 
-let next_id () =
-  let return = !counter in
-  counter := return + 1;
-  return
 
 let make_new_complete last_event =
   let delta = Ptime.Span.of_d_ps (0, Int64.of_int 1_000_000) |> Option.get in
@@ -56,7 +51,7 @@ let make_new_complete last_event =
   let user_id = last_event.user_id in
   let new_event =
     {
-      id = next_id ();
+      id = None;
       param = Complete_workout;
       value = None;
       session_id = None;
@@ -150,6 +145,7 @@ let read_event_sql_dump file =
     let read_event_log_data line =
       Scanf.sscanf line "(%d, %d, %s@, %s@, %s@, %s@)"
         (fun id user_id timestamp param value session_id ->
+          let id = Some id in
           let param = String.(sub param ~pos:1 ~len:(length param - 2)) in
           let param = event_param_of param in
           let value = clean_opt value in
@@ -202,6 +198,7 @@ let () =
   in
   Format.eprintf "Verifying and adding missing events\n";
 
+  (* For verification purposes *)
   let print_data group =
     let user_id = (List.hd group).user_id in
     let f e =
@@ -218,22 +215,15 @@ let () =
   in
 
   let print_sql groups =
-    let user_ids = IntSet.empty  in
+
     let event_logs = List.concat groups in
 
-    (* let _res =  List.fold_left ~init fixed_groups ~f:print_sql in *)
     Format.printf
       {|INSERT INTO "public"."event_logs" ("user_id", "timestamp", "param", "value") VALUES@.|};
     let new_events = List.filter ~f:(fun e -> e.new_event == true) event_logs in
     let last_idx = List.length new_events - 1 in
-    (* let init = (user_ids, 0) in *)
-    (* let user_ids = List.fold_left ~init:IntSet.empty ~f:(fun ids e -> IntSet.add e.user_id ids )  new_events in *)
 
     List.iteri new_events ~f:(fun idx e ->
-        (* TODO gather user_id to keep sql *)
-        (* row_id => database should generate
-           user_id
-        *)
         (* 139559, '2023-09-28 23:31:41.235368', 'updateFCMtoken', '{}', NULL), *)
         (* let value *)
         let user_id = e.user_id in
